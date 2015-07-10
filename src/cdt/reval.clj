@@ -282,12 +282,6 @@
          (convert-fn (fixup-string-reference-impl s))
          (catch Exception e (println-str (str s))))))))
 
-(defmacro reval
-  ([thread frame-num form]
-     `(reval ~thread ~frame-num ~form true))
-  ([thread frame-num form locals?]
-     `(safe-reval ~thread ~frame-num '~form true read-string)))
-
 (defn reval-display [thread frame-num form]
   (-> (safe-reval thread frame-num form true read-string)
       cdtu/string-nil cdtu/cdt-display-msg println))

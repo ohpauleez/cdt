@@ -8,6 +8,8 @@
 ;; Contributors:
 ;; Travis Vachon
 
+;; These updates were made by Paul deGrandis 2015, under EPL 1.0
+
 (ns cdt.ui
   (:require [cdt.utils :as cdtu]
             [cdt.events :as cdte]
@@ -15,7 +17,7 @@
             [cdt.reval :as cdtr])
   (:import java.lang.management.ManagementFactory))
 
-(def cdt-release "1.2.6b")
+(def cdt-release "1.3")
 
 (defn cdt-attach
   ([port] (cdt-attach "localhost" port))
@@ -25,7 +27,8 @@
        (.setValue (.get args "port") port)
        (.setValue (.get args "hostname") hostname)
        (reset! cdtu/vm-data (.attach (cdtu/conn) args))
-       (cdte/start-event-handler))))
+       (cdte/start-event-handler)
+       (cdtu/vm))))
 
 (defn- get-pid []
   (first (.split (.getName
@@ -38,7 +41,8 @@
      (let [args (.defaultArguments (cdtu/conn))]
        (.setValue (.get args "pid") pid)
        (reset! cdtu/vm-data (.attach (cdtu/conn) args))
-       (cdte/start-event-handler))))
+       (cdte/start-event-handler)
+       (cdtu/vm))))
 
 ;; still experimental
 (defn cdt-attach-core []
@@ -54,9 +58,11 @@
   (.dispose (cdtu/vm))
   (reset! cdtu/CDT-DISPLAY-MSG false)
   (reset! cdte/step-list {})
-  (cdte/stop-event-handler))
+  (cdte/stop-event-handler)
+  (cdtu/vm))
 
 (defn print-frame
+  ([] (print-frame (cdte/ct) (cdtu/cf)))
   ([thread frame-num]
      (let [f (cdtu/get-frame thread frame-num)
            l (.location f)
@@ -67,34 +73,41 @@
        (printf "%3d %s %s %s %s:%d\n" frame-num c (.name (.method l))
                ln fname (.lineNumber l)))))
 
-(defn print-current-location [thread frame-num]
-  (try
-    (cdtr/check-incompatible-state
-     (let [line (.lineNumber (.location (cdtu/get-frame thread frame-num)))]
-       (if-let [{:keys [name jar]} (cdtu/get-source thread frame-num)]
-         (let [s (format "%s:%d:%d:" name line frame-num)
-               s (if jar (str s jar) s)]
-           (println "CDT location is" s)
-           (print-frame thread frame-num))
-         (println (cdtu/source-not-found)))))
-    (catch Exception _ (println (cdtu/source-not-found)))))
+(defn print-current-location
+  ([] (print-current-location (cdte/ct) (cdtu/cf)))
+  ([thread frame-num]
+   (try
+     (cdtr/check-incompatible-state
+       (let [line (.lineNumber (.location (cdtu/get-frame thread frame-num)))]
+         (if-let [{:keys [name jar]} (cdtu/get-source thread frame-num)]
+           (let [s (format "%s:%d:%d:" name line frame-num)
+                 s (if jar (str s jar) s)]
+             (println "CDT location is" s)
+             (print-frame thread frame-num))
+           (println (cdtu/source-not-found)))))
+     (catch Exception _ (println (cdtu/source-not-found))))))
 
-(defn up [thread frame-num]
+(defn up
+  ([] (up (cdte/ct) (cdtu/cf)))
+  ([thread frame-num]
   (let [max (dec (count (.frames thread)))]
     (if (< frame-num max)
       (let [new-frame-num (inc frame-num)]
         (cdtu/scf new-frame-num)
         (print-current-location thread new-frame-num))
-      (println (cdtu/cdt-display-msg "already at top of stack")))))
+      (println (cdtu/cdt-display-msg "already at top of stack"))))))
 
-(defn down [thread frame-num]
+(defn down
+  ([] (down (cdte/ct) (cdtu/cf)))
+  ([thread frame-num]
   (if (> frame-num 0)
     (let [new-frame-num (dec frame-num)]
       (cdtu/scf new-frame-num)
       (print-current-location thread new-frame-num))
-    (println (cdtu/cdt-display-msg "already at bottom of stack"))))
+    (println (cdtu/cdt-display-msg "already at bottom of stack")))))
 
 (defn print-frames
+  ([] (print-frames (cdte/ct)))
   ([thread]
      (doseq [frame-num (range (count (.frames thread)))]
        (print-frame thread frame-num))))
@@ -111,13 +124,49 @@
                ln fname (.lineNumber l)))))
 
 (defn get-frames
+  ([] (get-frames (cdte/ct)))
   ([thread]
      (for [frame-num (range (count (.frames thread)))]
        (get-frame-string thread frame-num))))
 
+(defn locals
+  ([] (locals (cdte/ct) (cdtu/cf)))
+  ([thread frame-num]
+   (cdtr/locals thread frame-num)))
+
+(defn continue-thread
+  ([] (continue-thread (cdte/ct)))
+  ([thread]
+   (cdtu/continue-thread thread)))
+
+(defn step
+  ([] (step (cdte/ct)))
+  ([thread]
+   (cdte/step thread)))
+(defn stepi
+  ([] (stepi (cdte/ct)))
+  ([thread]
+   (cdte/stepi thread)))
+(defn step-over
+  ([] (step-over (cdte/ct)))
+  ([thread]
+   (cdte/step-over thread)))
+(defn finish
+  ([] (finish (cdte/ct)))
+  ([thread]
+   (cdte/finish thread)))
+
 (defmacro bg [& body]
   `(.start (Thread.
             (fn[] (binding [*ns* ~*ns*] (eval '(do ~@body)))))))
+
+(defmacro reval
+  ([form]
+   `(reval ~(cdte/ct) ~(cdtu/cf)))
+  ([thread frame-num form]
+     `(reval ~thread ~frame-num ~form true))
+  ([thread frame-num form locals?]
+     `(cdt.reval/safe-reval ~thread ~frame-num '~form ~locals? read-string)))
 
 (defmacro expose [& vars-to-expose]
   `(do
@@ -129,10 +178,10 @@
 
 (expose cdtu/conn cdtu/vm cdtu/vm cdtu/continue-vm cdtu/list-threads cdtu/cf
         cdtu/print-threads cdtu/all-thread-groups cdtu/get-thread-from-id
-        cdtu/cdt-display-msg cdtu/set-display-msg cdtu/continue-thread
+        cdtu/cdt-display-msg cdtu/set-display-msg
 
         cdte/set-handler cdte/bp-list cdte/catch-list
-        cdte/stepi cdte/step cdte/step-over cdte/finish cdte/ct cdte/set-catch
+        cdte/ct cdte/set-catch
         cdte/delete-catch cdte/get-thread-from-event cdte/exception-event?
         cdte/exception-handler cdte/breakpoint-handler
         cdte/step-handler cdte/create-thread-start-request
@@ -142,5 +191,5 @@
         cdtb/print-bps cdtb/line-bp cdtb/delete-all-breakpoints cdtb/set-bp
         cdtb/set-bp-sym cdtb/delete-bp
 
-        cdtr/locals cdtr/safe-reval cdtr/reval cdtr/reval-display)
+        cdtr/safe-reval cdtr/reval-display)
 
