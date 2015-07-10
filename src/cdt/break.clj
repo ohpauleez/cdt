@@ -108,7 +108,7 @@
 
 (defn- get-file-class [fname path]
   (second (re-find (re-pattern
-                    (str path File/separator "(.*)(.clj|.java)")) fname)))
+                    (str path File/separator "(.*)(.clj|.java|.cljc)")) fname)))
 
 (defn- remove-suffix [fname]
   (first (.split fname "\\.")))
@@ -145,7 +145,7 @@
 (defn- get-locations [line class]
   (try
     (.locationsOfLine class line)
-    (catch Exception e 
+    (catch Exception e
            (if (= (type (.getCause e))
                   com.sun.jdi.AbsentInformationException)
              []

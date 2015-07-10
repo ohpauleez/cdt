@@ -90,7 +90,7 @@
 
 (defn clojure-frame? [thread frame-num]
   (if-let [name (get-source-name thread frame-num)]
-    (.endsWith name ".clj")
+    (or (.endsWith name ".clj") (.endsWith name ".cljc"))
     (do
       (println "source name unavailable")
       (-> (cdtu/get-frame thread frame-num) .location
